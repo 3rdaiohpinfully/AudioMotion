@@ -1,0 +1,402 @@
+Step-by-Step Implementation
+Backend Setup
+Frontend Setup
+Animation Generation and Audio Analysis
+Integration Testing and Refinement
+Backend Setup (kaiber-backend)
+The backend will handle image and audio uploads and provide endpoints for generating and retrieving animations.
+
+Clone the Backend Repository:
+
+bash
+Copy code
+git clone https://github.com/3rdevai/kaiber-backend.git
+cd kaiber-backend
+Install Dependencies:
+
+bash
+Copy code
+npm install
+Configure Environment Variables:
+Create a .env file in the backend directory with the necessary environment variables:
+
+bash
+Copy code
+touch .env
+Add the following content to .env:
+
+makefile
+Copy code
+FIREBASE_API_KEY=your_firebase_api_key
+FIREBASE_AUTH_DOMAIN=your_firebase_auth_domain
+FIREBASE_PROJECT_ID=your_firebase_project_id
+FIREBASE_STORAGE_BUCKET=your_firebase_storage_bucket
+FIREBASE_MESSAGING_SENDER_ID=your_firebase_messaging_sender_id
+FIREBASE_APP_ID=your_firebase_app_id
+Setup Firebase Configuration:
+Create a file config/firebase.js:
+
+javascript
+Copy code
+const { initializeApp } = require('firebase/app');
+const { getStorage } = require('firebase/storage');
+
+const firebaseConfig = {
+  apiKey: process.env.FIREBASE_API_KEY,
+  authDomain: process.env.FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.FIREBASE_PROJECT_ID,
+  storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.FIREBASE_APP_ID,
+};
+
+const firebaseApp = initializeApp(firebaseConfig);
+const storage = getStorage(firebaseApp);
+
+module.exports = { storage };
+Setup Routes and Controllers:
+Create a file routes/uploadRoute.js:
+
+javascript
+Copy code
+const express = require('express');
+const multer = require('multer');
+const { uploadFile } = require('../controller/uploadController');
+
+const router = express.Router();
+const upload = multer({ storage: multer.memoryStorage() });
+
+router.post('/upload', upload.fields([{ name: 'image' }, { name: 'audio' }]), uploadFile);
+
+module.exports = router;
+Create a file controller/uploadController.js:
+
+javascript
+Copy code
+const { ref, uploadBytesResumable, getDownloadURL } = require('firebase/storage');
+const { storage } = require('../config/firebase');
+const AnimationModel = require('../models/AnimationModel');
+
+const uploadFile = async (req, res) => {
+  try {
+    const imageFile = req.files.image[0];
+    const audioFile = req.files.audio[0];
+
+    const imageRef = ref(storage, `images/${imageFile.originalname}`);
+    const audioRef = ref(storage, `audio/${audioFile.originalname}`);
+
+    const imageUploadTask = uploadBytesResumable(imageRef, imageFile.buffer);
+    const audioUploadTask = uploadBytesResumable(audioRef, audioFile.buffer);
+
+    await Promise.all([
+      new Promise((resolve, reject) => {
+        imageUploadTask.on(
+          'state_changed',
+          null,
+          reject,
+          async () => {
+            const imageURL = await getDownloadURL(imageUploadTask.snapshot.ref);
+            resolve(imageURL);
+          }
+        );
+      }),
+      new Promise((resolve, reject) => {
+        audioUploadTask.on(
+          'state_changed',
+          null,
+          reject,
+          async () => {
+            const audioURL = await getDownloadURL(audioUploadTask.snapshot.ref);
+            resolve(audioURL);
+          }
+        );
+      })
+    ]).then(async ([imageURL, audioURL]) => {
+      const newAnimation = new AnimationModel({ imageUrl: imageURL, audioUrl: audioURL });
+      await newAnimation.save();
+      res.status(200).json(newAnimation);
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+module.exports = { uploadFile };
+Model for Animation:
+Create a file models/AnimationModel.js:
+
+javascript
+Copy code
+const mongoose = require('mongoose');
+
+const AnimationSchema = new mongoose.Schema({
+  imageUrl: { type: String, required: true },
+  audioUrl: { type: String, required: true },
+  animationUrl: { type: String }
+});
+
+const AnimationModel = mongoose.model('Animation', AnimationSchema);
+
+module.exports = AnimationModel;
+Main Server Setup:
+Create or modify the main server file server.js:
+
+javascript
+Copy code
+const express = require('express');
+const bodyParser = require('body-parser');
+const cors = require('cors');
+const mongoose = require('mongoose');
+const uploadRoutes = require('./routes/uploadRoute');
+
+const app = express();
+
+app.use(cors());
+app.use(bodyParser.json());
+
+mongoose.connect('mongodb://localhost:27017/kaiber', {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+});
+
+app.use('/api/upload', uploadRoutes);
+
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});
+Run the Backend:
+
+bash
+Copy code
+npm start
+Frontend Setup (kaiber-snapshot)
+The frontend will allow users to upload images and audio, and view the generated animations.
+
+Clone the Frontend Repository:
+
+bash
+Copy code
+git clone https://github.com/bucket-kim/kaiber-snapshot.git
+cd kaiber-snapshot
+Install Dependencies:
+
+bash
+Copy code
+npm install
+Configure Environment Variables:
+Create a .env.local file in the root directory with the necessary environment variables:
+
+bash
+Copy code
+touch .env.local
+Add the following content to .env.local:
+
+makefile
+Copy code
+NEXT_PUBLIC_FIREBASE_API_KEY=your_firebase_api_key
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your_firebase_auth_domain
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=your_firebase_project_id
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your_firebase_storage_bucket
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_firebase_messaging_sender_id
+NEXT_PUBLIC_FIREBASE_APP_ID=your_firebase_app_id
+Setup Firebase Configuration:
+Create a file src/firebase.ts:
+
+typescript
+Copy code
+import { initializeApp } from "firebase/app";
+import { getStorage } from "firebase/storage";
+
+const firebaseConfig = {
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+};
+
+const firebaseApp = initializeApp(firebaseConfig);
+const storage = getStorage(firebaseApp);
+
+export default storage;
+Create Video Upload Component:
+Create a file src/components/Upload.tsx:
+
+tsx
+Copy code
+"use client";
+
+import React, { useState } from "react";
+import axios from "axios";
+
+const Upload = ({ onUploadComplete }) => {
+  const [image, setImage] = useState<File | null>(null);
+  const [audio, setAudio] = useState<File | null>(null);
+  const [progress, setProgress] = useState<number>(0);
+
+  const handleUpload = async () => {
+    if (!image || !audio) return;
+
+    const formData = new FormData();
+    formData.append("image", image);
+    formData.append("audio", audio);
+
+    const response = await axios.post("http://localhost:8080/api/upload", formData, {
+      onUploadProgress: (progressEvent) => {
+        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        setProgress(percentCompleted);
+      },
+    });
+
+    const { imageUrl, audioUrl } = response.data;
+    onUploadComplete(imageUrl, audioUrl);
+  };
+
+  return (
+    <div>
+      <input type="file" onChange={(e) => setImage(e.target.files ? e.target.files[0] : null)} />
+      <input type="file" onChange={(e) => setAudio(e.target.files ? e.target.files[0] : null)} />
+      <button onClick={handleUpload}>Upload Files</button>
+      {progress > 0 && <p>Upload Progress: {progress}%</p>}
+    </div>
+  );
+};
+
+export default Upload;
+Update Home Page:
+Modify the file src/pages/index.tsx to include the upload component:
+
+tsx
+Copy code
+import React, { useState } from "react";
+import Upload from "../components/Upload";
+import Animation from "../components/Animation";
+
+const Home = () => {
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+
+  return (
+    <main>
+      <Upload onUploadComplete={(image, audio) => {
+        setImageUrl(image);
+        setAudioUrl(audio);
+      }} />
+      {imageUrl && audioUrl && <Animation imageUrl={imageUrl} audioUrl={audioUrl} />}
+    </main>
+  );
+};
+
+export default Home;
+Animation Generation and Audio Analysis
+Integrate Audio Analysis Library:
+We'll use Tone.js to analyze the audio file and generate a simple flipbook-style animation.
+
+Create Utility Functions for Animation and Audio Analysis:
+Create a file src/utils/animationUtils.ts:
+
+typescript
+Copy code
+import * as tf from "@tensorflow/tfjs";
+import axios from "axios";
+import * as Tone from "tone";
+
+export const getAudioData = async (audioUrl: string) => {
+  const response = await axios.get(audioUrl, { responseType: "arraybuffer" });
+  const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+  const audioBuffer = await audioContext.decodeAudioData(response.data);
+  const channelData = audioBuffer.getChannelData(0);
+  return channelData;
+};
+
+export const createFlipbookAnimation = async (imageUrl: string, audioData: Float32Array) => {
+  // Load the input image
+  const img = new Image();
+  img.src = imageUrl;
+  await img.decode();
+
+  const inputTensor = tf.browser.fromPixels(img);
+
+  // Perform audio analysis using Tone.js
+  const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+  const audioBuffer = await audioContext.decodeAudioData(audioData.buffer);
+  const waveform = new Tone.Waveform();
+  const player = new Tone.Player(audioBuffer).connect(waveform).toDestination();
+  player.start();
+
+  // Generate flipbook animation frames
+  const animationFrames = [];
+  for (let i = 0; i < waveform.size; i += 1024) {
+    const modifiedFrame = inputTensor.add(tf.scalar(waveform.getValue(i) * 50)).clipByValue(0, 255);
+    animationFrames.push(modifiedFrame);
+  }
+
+  // Convert animation frames to data URLs
+  const animationDataUrls = await Promise.all(animationFrames.map(async frame => {
+    const canvas = document.createElement('canvas');
+    await tf.browser.toPixels(frame, canvas);
+    return canvas.toDataURL();
+  }));
+
+  return animationDataUrls;
+};
+Create Animation Component:
+Create a file src/components/Animation.tsx:
+
+tsx
+Copy code
+import React, { useEffect, useState } from "react";
+import { getAudioData, createFlipbookAnimation } from "../utils/animationUtils";
+
+const Animation = ({ imageUrl, audioUrl }) => {
+  const [animationFrames, setAnimationFrames] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    const generateAnimation = async () => {
+      const audioData = await getAudioData(audioUrl);
+      const animationResult = await createFlipbookAnimation(imageUrl, audioData);
+      setAnimationFrames(animationResult);
+    };
+
+    generateAnimation();
+  }, [imageUrl, audioUrl]);
+
+  return (
+    <div>
+      {animationFrames ? (
+        <div>
+          {animationFrames.map((frame, index) => (
+            <img key={index} src={frame} alt={`Frame ${index}`} />
+          ))}
+        </div>
+      ) : (
+        <p>Generating animation...</p>
+      )}
+    </div>
+  );
+};
+
+export default Animation;
+Testing and Refinement
+Run Backend:
+Ensure your backend is running:
+
+bash
+Copy code
+cd kaiber-backend
+npm start
+Run Frontend:
+Ensure your frontend is running:
+
+bash
+Copy code
+cd kaiber-snapshot
+npm run dev
+Test Upload and Animation Generation:
+Open your frontend application in a browser and test the following:
+
+Upload an image file.
+Upload an audio file.
+Ensure the uploaded files trigger the animation generation and the animation is displayed.
